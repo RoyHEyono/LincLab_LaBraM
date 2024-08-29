@@ -1,32 +1,32 @@
 from pathlib import Path
 from shock.utils import h5Dataset
-from shock.utils import preprocessing_cnt
+from shock.utils.eegUtils import preprocessing_fif
 
-savePath = Path('path/to/your/save/path')
-rawDataPath = Path('path/to/your/raw/data/path')
-group = rawDataPath.glob('*.cnt')
+savePath = Path('/network/scratch/r/roy.eyono/eeg_processed')
+rawDataPath = Path('/network/scratch/r/roy.eyono/raw/MNE-alexeeg-data/record/806023/files')
+group = rawDataPath.glob('*.fif')
 
 # preprocessing parameters
-l_freq = 0.1
-h_freq = 75.0
-rsfreq = 200
+RESAMPLING_RATE = 200  # Hz
+FMIN = 8  # Hz
+FMAX = 32  # Hz
 
 # channel number * rsfreq
-chunks = (62, rsfreq)
+chunks = (16, RESAMPLING_RATE)
 
-dataset = h5Dataset(savePath, 'dataset')
-for cntFile in group:
-    print(f'processing {cntFile.name}')
-    eegData, chOrder = preprocessing_cnt(cntFile, l_freq, h_freq, rsfreq)
+dataset = h5Dataset(savePath, 'alexeeg')
+for fifFile in group:
+    print(f'processing {fifFile.name}')
+    eegData, chOrder = preprocessing_fif(fifFile)
     chOrder = [s.upper() for s in chOrder]
-    eegData = eegData[:, :-10*rsfreq]
-    grp = dataset.addGroup(grpName=cntFile.stem)
+    # eegData = eegData[:, :-10*rsfreq]
+    grp = dataset.addGroup(grpName=fifFile.stem)
     dset = dataset.addDataset(grp, 'eeg', eegData, chunks)
 
     # dataset attributes
-    dataset.addAttributes(dset, 'lFreq', l_freq)
-    dataset.addAttributes(dset, 'hFreq', h_freq)
-    dataset.addAttributes(dset, 'rsFreq', rsfreq)
+    dataset.addAttributes(dset, 'lFreq', FMIN)
+    dataset.addAttributes(dset, 'hFreq', FMAX)
+    dataset.addAttributes(dset, 'rsFreq', RESAMPLING_RATE)
     dataset.addAttributes(dset, 'chOrder', chOrder)
 
 dataset.save()
