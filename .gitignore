@@ -1,0 +1,5 @@
+__pycache__
+sbatch_err
+sbatch_out
+log
+checkpoints

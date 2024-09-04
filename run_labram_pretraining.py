@@ -102,7 +102,7 @@ def get_args():
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')    
-    parser.add_argument('--num_workers', default=10, type=int)
+    parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--pin_mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem',
@@ -171,16 +171,27 @@ def main(args):
 
     # get dataset
     # datasets with the same montage can be packed within a sublist
-    datasets_train = [
-        ["path/to/dataset1", "path/to/dataset2"], # e.g., 64 channels for dataset1 and dataset2
-        ["path/to/dataset3", "path/to/dataset4"], # e.g., 32 channels for dataset3 and dataset4
-    ]
+    # datasets_train = [
+    #     ["path/to/dataset1", "path/to/dataset2"], # e.g., 64 channels for dataset1 and dataset2
+    #     ["path/to/dataset3", "path/to/dataset4"], # e.g., 32 channels for dataset3 and dataset4
+    # ]
+    # # time window for each sublist in dataset_train
+    # # to ensure the total sequence length be around 256 for each dataset
+    # time_window = [
+    #     4, # set the time window to 4 so that the sequence length is 4 * 64 = 256
+    #     8, # set the time window to 8 so that the sequence length is 8 * 32 = 256
+    # ]
+
+    datasets_train = [["/network/scratch/r/roy.eyono/eeg_processed/alexeeg.hdf5"]]
+
     # time window for each sublist in dataset_train
     # to ensure the total sequence length be around 256 for each dataset
-    time_window = [
-        4, # set the time window to 4 so that the sequence length is 4 * 64 = 256
-        8, # set the time window to 8 so that the sequence length is 8 * 32 = 256
-    ]
+    # time_window = [
+    #     4, # set the time window to 4 so that the sequence length is 4 * 64 = 256
+    #     8, # set the time window to 8 so that the sequence length is 8 * 32 = 256
+    # ]
+    time_window = [16]
+
     dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride_size=800, start_percentage=0, end_percentage=1)
     # prepare visual tokenizer
     vqnsp = get_visual_tokenizer(args).to(device)
