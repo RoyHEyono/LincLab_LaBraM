@@ -38,7 +38,18 @@ import pandas as pd
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_squared_error
 from scipy.stats import pearsonr
-
+import warnings
+import moabb
+import mne
+from moabb.paradigms import MotorImagery
+from sklearn.utils import resample
+from moabb.datasets import AlexMI
+moabb.set_log_level("info")
+mne.set_log_level("CRITICAL")
+warnings.filterwarnings("ignore")
+RESAMPLING_RATE = 200  # Hz
+FMIN = 8  # Hz
+FMAX = 32  # Hz
 
 standard_1020 = [
     'FP1', 'FPZ', 'FP2', 
@@ -756,7 +767,45 @@ class TUEVLoader(torch.utils.data.Dataset):
         Y = int(sample["label"][0] - 1)
         X = torch.FloatTensor(X)
         return X, Y
-    
+
+class MotorImageryLoader(torch.utils.data.Dataset):
+    def __init__(self, n_classes=2, events=["right_hand", "feet"], sampling_rate=200, indices=None, subjects=[]):
+        self.default_rate = sampling_rate
+        self.dataset = MotorImagery(n_classes=n_classes, events=events,fmin=FMIN,fmax=FMAX,resample=self.default_rate)
+        if len(subjects) >= 1:
+            self.X, self.y, self.metadata = self.dataset.get_data(AlexMI(),subjects=subjects)
+        else: 
+            self.X, self.y, self.metadata = self.dataset.get_data(AlexMI())
+        if indices is not None:
+            self.X = self.X[indices]
+            self.y = self.y[indices]
+            self.metadata = self.metadata.iloc[indices]
+
+        EVENTS_MAPPING = {
+            "left_hand": 0,
+            "right_hand": 1,
+            "feet": 2,
+        }
+        def map_labels_to_int(labels):
+            return np.array([EVENTS_MAPPING[label] for label in labels]).astype(int)
+        self.y=map_labels_to_int(self.y)
+
+    def __len__(self):
+        return len(self.y) 
+
+    def __getitem__(self, index):
+        X = self.X[index]
+        Y = self.y[index]
+        X = torch.FloatTensor(X)
+        Y-=1 # adjust Y to zero-based indexing, similar as TUEV/TUAB data
+        return X, Y
+
+    def get_ch_names(self):
+        # moabb's method to get chnames
+        ep, _, _ = self.dataset.get_data(AlexMI(), return_epochs=True)
+        chOrder=[x.upper() for x in ep.info['ch_names']]
+        print(f"AlexMI channel order: {chOrder}")
+        return chOrder
 
 def prepare_TUEV_dataset(root):
     # set random seed
@@ -806,7 +855,7 @@ def prepare_TUAB_dataset(root):
 
 def get_metrics(output, target, metrics, is_binary, threshold=0.5):
     if is_binary:
-        if 'roc_auc' not in metrics or sum(target) * (len(target) - sum(target)) != 0:  # to prevent all 0 or all 1 and raise the AUROC error
+        if sum(target) * (len(target) - sum(target)) != 0:  # to prevent all 0 or all 1 and raise the AUROC error
             results = binary_metrics_fn(
                 target,
                 output,
