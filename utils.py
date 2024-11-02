@@ -44,6 +44,7 @@ import mne
 from moabb.paradigms import MotorImagery
 from sklearn.utils import resample
 from moabb.datasets import AlexMI
+from torch.utils.data import DataLoader, Subset, random_split, ConcatDataset
 moabb.set_log_level("info")
 mne.set_log_level("CRITICAL")
 warnings.filterwarnings("ignore")
@@ -769,13 +770,13 @@ class TUEVLoader(torch.utils.data.Dataset):
         return X, Y
 
 class MotorImageryLoader(torch.utils.data.Dataset):
-    def __init__(self, n_classes=2, events=["right_hand", "feet"], sampling_rate=200, indices=None, subjects=[]):
+    def __init__(self, n_classes=2, events=["right_hand", "feet"], sampling_rate=200, indices=None, subjects=[], dataset=AlexMI()):
         self.default_rate = sampling_rate
-        self.dataset = MotorImagery(n_classes=n_classes, events=events,fmin=FMIN,fmax=FMAX,resample=self.default_rate)
+        self.paradigm = MotorImagery(n_classes=n_classes, events=events,fmin=FMIN,fmax=FMAX,resample=self.default_rate)
         if len(subjects) >= 1:
-            self.X, self.y, self.metadata = self.dataset.get_data(AlexMI(),subjects=subjects)
+            self.X, self.y, self.metadata = self.paradigm.get_data(dataset,subjects=subjects)
         else: 
-            self.X, self.y, self.metadata = self.dataset.get_data(AlexMI())
+            self.X, self.y, self.metadata = self.paradigm.get_data(dataset)
         if indices is not None:
             self.X = self.X[indices]
             self.y = self.y[indices]
@@ -802,10 +803,35 @@ class MotorImageryLoader(torch.utils.data.Dataset):
 
     def get_ch_names(self):
         # moabb's method to get chnames
-        ep, _, _ = self.dataset.get_data(AlexMI(), return_epochs=True)
+        ep, _, _ = self.paradigm.get_data(AlexMI(), return_epochs=True)
         chOrder=[x.upper() for x in ep.info['ch_names']]
         print(f"AlexMI channel order: {chOrder}")
         return chOrder
+
+def split_moabb_data(dataset, split_ratios=(0.7, 0.1, 0.2), seed=42):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    #unique subject-session combinations from the metadata
+    
+    subjects_sessions = dataset.metadata.groupby(["subject", "session"]).groups
+    train_dss, val_dss, test_dss = [], [], []
+
+    for (subj, session), indices in subjects_sessions.items():
+        session_ds = Subset(dataset, list(indices))
+
+        train_size = int(split_ratios[0] * len(session_ds))
+        val_size = int(split_ratios[1] * len(session_ds))
+        test_size = len(session_ds) - train_size - val_size
+        train_split, val_split, test_split = random_split(session_ds, [train_size, val_size, test_size])
+
+        train_dss.append(train_split)
+        val_dss.append(val_split)
+        test_dss.append(test_split)
+
+    train_ds = ConcatDataset(train_dss)
+    val_ds = ConcatDataset(val_dss)
+    test_ds = ConcatDataset(test_dss)
+    return train_ds, val_ds, test_ds
 
 def prepare_TUEV_dataset(root):
     # set random seed

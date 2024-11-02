@@ -130,7 +130,7 @@ def get_args():
     parser.add_argument('--disable_weight_decay_on_rel_pos_bias', action='store_true', default=False)
 
     # Dataset parameters
-    parser.add_argument('--nb_classes', default=0, type=int,
+    parser.add_argument('--nb_classes', default=1, type=int,
                         help='number of the classification types')
 
     parser.add_argument('--output_dir', default='',
@@ -249,7 +249,18 @@ def main(args, ds_init):
     # dataset_train, dataset_test, dataset_val: follows the standard format of torch.utils.data.Dataset.
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
-    dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
+    # dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
+
+    # datasets_train = [["/network/scratch/q/qingchen.hu/eeg_processed/alexeeg.hdf5"]]
+    # time_window = [16]
+    # dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride_size=800, start_percentage=0, end_percentage=1)
+    # dataset_train, dataset_test, dataset_val=dataset_train_list[0],dataset_train_list[0],dataset_train_list[0]
+    
+    from utils import MotorImageryLoader, split_moabb_data
+    dataLoader=MotorImageryLoader()
+    dataset_train, dataset_test, dataset_val = split_moabb_data(dataLoader, seed=args.seed)
+    ch_names=dataLoader.get_ch_names()
+    metrics=["roc_auc", "accuracy"]
 
     if args.disable_eval_during_finetuning:
         dataset_val = None
@@ -386,7 +397,7 @@ def main(args, ds_init):
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     print("Model = %s" % str(model_without_ddp))
-    print('number of params:', n_parameters)
+    print('Model - number of params:', n_parameters)
 
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size
