@@ -46,7 +46,8 @@ def preprocessing_fif(npyFilePath):
     for ch_n in raw.ch_names:
         if ch_n.upper() not in standard_1020:
             raw.drop_channels([ch_n]) 
-    
+    raw.filter(8, 32)
+    raw.resample(200)
     eegData = raw.get_data(units='uV')
 
     return eegData, raw.ch_names
@@ -68,14 +69,21 @@ def preprocessing_edf(edfFilePath, l_freq=0.1, h_freq=75.0, sfreq:int=200, drop_
         except:
             return None, ['a']
 
-    # filtering
-    raw = raw.filter(l_freq=l_freq, h_freq=h_freq)
-    raw = raw.notch_filter(50.0)
-    # downsampling
-    raw = raw.resample(sfreq, n_jobs=5)
+    # # filtering
+    # raw = raw.filter(l_freq=l_freq, h_freq=h_freq)
+    # raw = raw.notch_filter(50.0)
+    # # downsampling
+    # raw = raw.resample(sfreq, n_jobs=5)
+    modified_chnames=[]
+    for ch_n in raw.ch_names:
+        name = ch_n.replace('.', '')
+        # if name.upper() not in standard_1020: all channels correct, no need to drop
+        #     raw.drop_channels([ch_n]) 
+    raw.filter(8, 32)
+    raw.resample(200)
     eegData = raw.get_data(units='uV')
 
-    return eegData, raw.ch_names
+    return eegData, modified_chnames
 
  
 def readh5(h5filePath):
