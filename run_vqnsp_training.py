@@ -152,7 +152,7 @@ def main(args):
     #     ["path/to/dataset3", "path/to/dataset4"], # e.g., 32 channels for dataset3 and dataset4
     # ]
 
-    datasets_train = [["/network/scratch/r/roy.eyono/eeg_processed/alexeeg.hdf5"]]
+    datasets_train = [["/network/scratch/q/qingchen.hu/eeg_processed/alexeeg_selected.hdf5"],["/network/scratch/q/qingchen.hu/eeg_processed/physionetMI_selected.hdf5"]]
 
     # time window for each sublist in dataset_train
     # to ensure the total sequence length be around 256 for each dataset
@@ -160,17 +160,15 @@ def main(args):
     #     4, # set the time window to 4 so that the sequence length is 4 * 64 = 256
     #     8, # set the time window to 8 so that the sequence length is 8 * 32 = 256
     # ]
-    time_window = [16]
-
+    time_window = [16,4]
+    # subject_filter={"['/content/old_alexeeg_v1.hdf5']":['subject1.raw', 'subject2.raw', 'subject3.raw']}
     dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride_size=200)
 
-    datasets_val = [
-        ["/network/scratch/r/roy.eyono/eeg_processed/alexeeg.hdf5"]
-    ]
+    datasets_val = [["/network/scratch/q/qingchen.hu/eeg_processed/alexeeg_selected.hdf5"],["/network/scratch/q/qingchen.hu/eeg_processed/physionetMI_selected.hdf5"]]
     if args.disable_eval:
         dataset_val_list = None
     else:
-        dataset_val_list, val_ch_names_list = utils.build_pretraining_dataset(datasets_val, [4])
+        dataset_val_list, val_ch_names_list = utils.build_pretraining_dataset(datasets_val, [16,4])
 
     if True:  # args.distributed:
         num_tasks = utils.get_world_size()
