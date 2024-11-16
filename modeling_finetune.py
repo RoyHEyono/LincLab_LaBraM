@@ -315,6 +315,23 @@ class NeuralTransformer(nn.Module):
             self.head.weight.data.mul_(init_scale)
             self.head.bias.data.mul_(init_scale)
 
+    def freeze_layers(self):
+        """
+        Freezes all layers except the final linear layer:self.head
+        """
+        for name, param in self.named_parameters():
+            if "head" not in name:
+                param.requires_grad = False
+            else:
+                print(f"---param: {name} is unfreezed for training---")
+
+    def unfreeze_layers(self):
+        """
+        Unfreezes all layers to fine tune all params
+        """
+        for param in self.parameters():
+            param.requires_grad = True
+
     def fix_init_weight(self):
         def rescale(param, layer_id):
             param.div_(math.sqrt(2.0 * layer_id))
@@ -354,11 +371,17 @@ class NeuralTransformer(nn.Module):
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
 
         x = torch.cat((cls_tokens, x), dim=1)
-
+        # print("---------------------------------------")
+        # print(f"input_chans: {input_chans}")
         pos_embed_used = self.pos_embed[:, input_chans] if input_chans is not None else self.pos_embed
         if self.pos_embed is not None:
+            # print(f"self.pos_embed shape:{self.pos_embed.shape}")
+            # print(f"pos_embed_used shape:{pos_embed_used.shape}")
             pos_embed = pos_embed_used[:, 1:, :].unsqueeze(2).expand(batch_size, -1, input_time_window, -1).flatten(1, 2)
+            # print(f"pos_embed shape:{pos_embed.shape}")
             pos_embed = torch.cat((pos_embed_used[:,0:1,:].expand(batch_size, -1, -1), pos_embed), dim=1)
+            # print(f"pos_embed shape:{pos_embed.shape}")
+            # print(f"x shape:{x.shape}")
             x = x + pos_embed
         if self.time_embed is not None:
             nc = n if t == self.patch_size else a
@@ -469,6 +492,7 @@ def labram_base_patch200_200(pretrained=False, **kwargs):
         patch_size=200, embed_dim=200, depth=12, num_heads=10, mlp_ratio=4, qk_norm=partial(nn.LayerNorm, eps=1e-6), # qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     model.default_cfg = _cfg()
+    model.freeze_layers()
     return model
 
 @register_model
@@ -477,6 +501,7 @@ def labram_large_patch200_200(pretrained=False, **kwargs):
         patch_size=200, embed_dim=400, depth=24, num_heads=16, mlp_ratio=4, out_chans=16, qk_norm=partial(nn.LayerNorm, eps=1e-6), # qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     model.default_cfg = _cfg()
+    model.freeze_layers()
     return model
 
 @register_model
@@ -485,4 +510,5 @@ def labram_huge_patch200_200(pretrained=False, **kwargs):
         patch_size=200, embed_dim=800, depth=48, num_heads=16, mlp_ratio=4, out_chans=32, qk_norm=partial(nn.LayerNorm, eps=1e-6), # qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     model.default_cfg = _cfg()
+    model.freeze_layers()
     return model
