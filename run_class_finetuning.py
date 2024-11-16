@@ -31,6 +31,11 @@ from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
 from scipy import interpolate
 import modeling_finetune
+from utils import MotorImageryLoader, split_moabb_data, create_moabb_data, pad_sample, pad_collate
+from moabb.datasets import AlexMI,Zhou2016,PhysionetMI
+import torch.nn.functional as F
+from torch.utils.data import Dataset, ConcatDataset
+import random
 
 def get_args():
     parser = argparse.ArgumentParser('LaBraM fine-tuning and evaluation script for EEG classification', add_help=False)
@@ -255,11 +260,43 @@ def main(args, ds_init):
     # time_window = [16]
     # dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride_size=800, start_percentage=0, end_percentage=1)
     # dataset_train, dataset_test, dataset_val=dataset_train_list[0],dataset_train_list[0],dataset_train_list[0]
-    
-    from utils import MotorImageryLoader, split_moabb_data
-    dataLoader=MotorImageryLoader()
-    dataset_train, dataset_test, dataset_val = split_moabb_data(dataLoader, seed=args.seed)
-    ch_names=dataLoader.get_ch_names()
+ 
+    random.seed(42)
+    all_alexmi = list(range(1,9)) 
+    all_physionetmi = list(range(1,110))
+    random.shuffle(all_alexmi)
+    random.shuffle(all_physionetmi)
+    alexmi_pretrain = all_alexmi[:len(all_alexmi) // 2] # dont use this, its the ones use for pretraining
+    alexmi_finetune = all_alexmi[len(all_alexmi) // 2:] # we use this
+    physionetmi_pretrain = all_physionetmi[:len(all_physionetmi) // 2] # dont use this, its the ones use for pretraining
+    physionetmi_finetune = all_physionetmi[len(all_physionetmi) // 2:] # we use this
+
+    # dataLoader=MotorImageryLoader(events=["right_hand", "left_hand"],dataset=BNCI2014_004())
+    alex_loader, (alex_train, alex_val, alex_test) = create_moabb_data(AlexMI(), alexmi_finetune, args.seed)
+    physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), physionetmi_finetune, args.seed)
+    datasets = [alex_train, alex_val, alex_test, physionet_train, physionet_val, physionet_test]
+    padded_datasets = []
+    for dataset in datasets:
+        padded_dataset = [pad_sample(sample,truncate=True, padding=True, 
+                            target_channels=64, target_length=600) for sample in dataset]
+        padded_datasets.append(padded_dataset)
+
+    dataset_train = ConcatDataset([padded_datasets[0], padded_datasets[3]])
+    dataset_val = ConcatDataset([padded_datasets[1], padded_datasets[4]])
+    dataset_test = ConcatDataset([padded_datasets[2], padded_datasets[5]])
+    # dataset_train, dataset_val, dataset_test = map(
+    #     lambda x, y: torch.utils.data.ConcatDataset([x, y]),
+    #     [alex_train, alex_val, alex_test],
+    #     [physionet_train, physionet_val, physionet_test]
+    # )
+
+    ch1=alex_loader.get_ch_names()
+    ch2=physionet_loader.get_ch_names()
+    ch_names=list(set(ch1) | set(ch2))
+
+    # dataLoader=MotorImageryLoader()
+    # dataset_train, dataset_test, dataset_val = split_moabb_data(dataLoader, seed=args.seed)
+    # ch_names=dataLoader.get_ch_names()    
     metrics=["roc_auc", "accuracy"]
 
     if args.disable_eval_during_finetuning:
@@ -304,7 +341,8 @@ def main(args, ds_init):
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
-        drop_last=True,
+        drop_last=True
+        # , collate_fn=pad_collate
     )
 
     if dataset_val is not None:

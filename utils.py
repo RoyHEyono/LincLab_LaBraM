@@ -43,7 +43,8 @@ import moabb
 import mne
 from moabb.paradigms import MotorImagery
 from sklearn.utils import resample
-from moabb.datasets import AlexMI
+from moabb.datasets import AlexMI,Zhou2016,BNCI2014_004,PhysionetMI
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset, random_split, ConcatDataset
 moabb.set_log_level("info")
 mne.set_log_level("CRITICAL")
@@ -722,10 +723,27 @@ def build_pretraining_dataset(datasets: list, time_window: list, stride_size=200
         ch_names_list.append(dataset.get_ch_names())
     return shock_dataset_list, ch_names_list
 
+# for specifying subjects
+# def build_pretraining_dataset(datasets: list, time_window: list, stride_size=200, start_percentage=0, end_percentage=1,subject_filter=None):
+#     shock_dataset_list = []
+#     ch_names_list = []
+
+#     for dataset_list, window_size in zip(datasets, time_window):
+#         if subject_filter is not None:
+#           dataset = ShockDataset([Path(file_path) for file_path in dataset_list], window_size * 200, stride_size, start_percentage, end_percentage,subject_filter=subject_filter[str(dataset_list)])
+#         else:
+#           dataset = ShockDataset([Path(file_path) for file_path in dataset_list], window_size * 200, stride_size, start_percentage, end_percentage)
+#         shock_dataset_list.append(dataset)
+#         ch_names_list.append(dataset.get_ch_names())
+
+#     return shock_dataset_list, ch_names_list
+
 
 def get_input_chans(ch_names):
     input_chans = [0] # for cls token
     for ch_name in ch_names:
+        #for some datasets such as physionet MI, contain . as suffix
+        ch_name = ch_name.replace('.', '')
         input_chans.append(standard_1020.index(ch_name) + 1)
     return input_chans
 
@@ -772,15 +790,44 @@ class TUEVLoader(torch.utils.data.Dataset):
 class MotorImageryLoader(torch.utils.data.Dataset):
     def __init__(self, n_classes=2, events=["right_hand", "feet"], sampling_rate=200, indices=None, subjects=[], dataset=AlexMI()):
         self.default_rate = sampling_rate
-        self.paradigm = MotorImagery(n_classes=n_classes, events=events,fmin=FMIN,fmax=FMAX,resample=self.default_rate)
-        if len(subjects) >= 1:
-            self.X, self.y, self.metadata = self.paradigm.get_data(dataset,subjects=subjects)
-        else: 
-            self.X, self.y, self.metadata = self.paradigm.get_data(dataset)
+        self.paradigm = MotorImagery(n_classes=n_classes, events=events,fmin=FMIN,fmax=FMAX)
+        self.dataset=dataset
+        self.subjects=subjects
+        try:
+            if len(subjects) >= 1:
+                self.X, self.y, self.metadata = self.paradigm.get_data(dataset,subjects=subjects)
+            else: 
+                self.X, self.y, self.metadata = self.paradigm.get_data(dataset)
+        except:
+            # in PhysionetMI's case, there's shape inconsistency
+            print("shape inconsistency in data, proceed with padding!")
+            X_all, y_all, metadata_all = [], [], []
+            max_length = 0
+            subject_list = self.subjects if len(self.subjects)>=1 else self.dataset.subject_list
+            print(f"data subject list used:{subject_list}")
+            for s in subject_list:
+                X, y, metadata = self.paradigm.get_data(dataset=dataset, subjects=[s])
+                max_length = max(max_length, X.shape[2])
+            print(f"padding data to maximum length: {max_length}")
+            for s in subject_list:
+                X, y, metadata = self.paradigm.get_data(dataset=dataset, subjects=[s])
+                X_padded = []
+                for trial in X:
+                    trial_padded = np.pad(trial, ((0, 0), (0, max_length-trial.shape[1])), "constant")
+                    X_padded.append(trial_padded)
+                X_all.append(np.array(X_padded))
+                y_all.append(y)
+                metadata_all.append(metadata)
+
+            self.X, self.y, self.metadata = np.concatenate(X_all, axis=0),np.concatenate(y_all, axis=0), pd.concat(metadata_all, ignore_index=True)
+
         if indices is not None:
             self.X = self.X[indices]
             self.y = self.y[indices]
             self.metadata = self.metadata.iloc[indices]
+
+        #use mne resample instead of moabb's resampling
+        self.X=self.preprocess_data(self.X)
 
         EVENTS_MAPPING = {
             "left_hand": 0,
@@ -803,10 +850,44 @@ class MotorImageryLoader(torch.utils.data.Dataset):
 
     def get_ch_names(self):
         # moabb's method to get chnames
-        ep, _, _ = self.paradigm.get_data(AlexMI(), return_epochs=True)
+        ep, _, _ = self.paradigm.get_data(self.dataset, return_epochs=True,subjects=[1])
         chOrder=[x.upper() for x in ep.info['ch_names']]
-        print(f"AlexMI channel order: {chOrder}")
         return chOrder
+
+    def get_ch_types(self):
+        ep, _, _ = self.paradigm.get_data(self.dataset, return_epochs=True,subjects=[1])
+        return ep.get_channel_types()
+    
+    def preprocess_data(self, data,resample=True):
+        # get chanel names and types
+        ch_names = self.get_ch_names()
+        ch_types = self.get_ch_types()
+        # if channel names do not exist, create artificial names
+        if ch_names is None:
+            ch_names = ["EEG%d" % ch for ch in range(1, len(ch_types) + 1)]
+        ch_types = np.array(ch_types).astype(str)
+        ch_names = np.array(ch_names).astype(str)
+
+        # create info object
+        info = mne.create_info(
+            ch_names=list(ch_names[np.where(ch_types == "eeg")]),
+            ch_types=list(ch_types[np.where(ch_types == "eeg")]),
+            sfreq=512.0 if self.dataset.code=="AlexandreMotorImagery" else 160.0,
+            verbose=False,
+        )
+
+        epochs = mne.EpochsArray(
+            data=data,
+            info=info,
+            verbose=False
+        )
+        print(f"moabb data info before resample:{info}")
+        # 3. resample data
+        rs_frq = self.default_rate  # Hz
+        if resample:
+            epochs.resample(rs_frq)
+
+        return epochs.get_data()
 
 def split_moabb_data(dataset, split_ratios=(0.7, 0.1, 0.2), seed=42):
     torch.manual_seed(seed)
@@ -832,6 +913,44 @@ def split_moabb_data(dataset, split_ratios=(0.7, 0.1, 0.2), seed=42):
     val_ds = ConcatDataset(val_dss)
     test_ds = ConcatDataset(test_dss)
     return train_ds, val_ds, test_ds
+
+def create_moabb_data(dataset, subject, seed):
+    loader = MotorImageryLoader(
+        n_classes=2, events=["right_hand", "feet"], sampling_rate=200,
+        subjects=subject, dataset=dataset
+    )
+    return loader, split_moabb_data(loader, seed=seed)
+
+def pad_sample(sample, truncate=True, padding=True, target_channels=64, target_length=600):
+        x, y = sample
+        # Truncate if necessary
+        if truncate:
+            x = x[:target_channels, :target_length]
+        # Pad if necessary
+        if padding:
+            x = F.pad(
+                x, 
+                (0, max(0, target_length - x.shape[1]), 
+                0, max(0, target_channels - x.shape[0]))
+            )
+        return x, y
+
+def pad_collate(batch):
+    X, y = zip(*batch)
+    y = [torch.tensor(data) if not isinstance(data, torch.Tensor) else data for data in y]
+    
+    max_chan = 64 #max(sample.shape[0] for sample in X)
+    max_length = 600 #max(sample.shape[1] for sample in X)
+    # pad(input, pad=(pad_left, pad_right, pad_top, pad_bottom))
+    padded_X = [
+        torch.nn.functional.pad(sample, (0, max_length - sample.shape[1], 0, max_chan - sample.shape[0]))
+        for sample in X
+    ]
+    
+    #stack as single batch
+    X = torch.stack(padded_X)
+    y = torch.stack(y)
+    return X, y
 
 def prepare_TUEV_dataset(root):
     # set random seed
