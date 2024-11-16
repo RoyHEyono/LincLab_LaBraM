@@ -38,7 +38,7 @@ group = [file for file in rawDataPath.glob('*.fif') if file.name in alexmi_pretr
 RESAMPLING_RATE = 200  # Hz
 FMIN = 8  # Hz
 FMAX = 32  # Hz
-
+# rsfreq = RESAMPLING_RATE
 # channel number * rsfreq
 chunks = (16, RESAMPLING_RATE)
 log_file = Path('/home/mila/q/qingchen.hu/LincLab_LaBraM/checkpoints/hdf5_processing_log.txt')
@@ -46,7 +46,7 @@ def log_name(file_name):
     with open(log_file, "a") as log:
         log.write(file_name + "\n")
 
-name='alexeeg_selected2'
+name='alexeeg_selected'
 dataset = h5Dataset(savePath, name)
 log_name(f'-----------PROCESSING H5DATASET: {name}-----------')
 
@@ -73,7 +73,7 @@ rawDataPath = Path('/network/scratch/q/qingchen.hu/mne_data/MNE-eegbci-data/file
 group = [file for file in rawDataPath.glob('**/*.edf') if file.name in physionetmi_pretrain]
 chunks = (64, RESAMPLING_RATE)
 
-name='physionetMI_selected2'
+name='physionetMI_selected'
 dataset = h5Dataset(savePath, name)
 log_name(f'-----------PROCESSING H5DATASET: {name}-----------')
 for edfFile in group:
