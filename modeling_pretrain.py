@@ -269,6 +269,25 @@ class NeuralTransformerForMEM(nn.Module):
 
         return x_rec, x_rec_sym
 
+@register_model
+def labram_small_patch200_1600_8k_vocab(pretrained=False, **kwargs): #5M
+    if "num_classes" in kwargs:
+        _ = kwargs.pop("num_classes")
+    if 'vocab_size' in kwargs:
+        vocab_size = kwargs['vocab_size']
+        _ = kwargs.pop("vocab_size")
+    else:
+        vocab_size = 8192
+    model = NeuralTransformerForMEM(
+        patch_size=200, embed_dim=200, depth=6, num_heads=5, mlp_ratio=4, qkv_bias=False, qk_norm=partial(nn.LayerNorm, eps=1e-6),
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), vocab_size=vocab_size, **kwargs)
+    model.default_cfg = _cfg()
+    if pretrained:
+        checkpoint = torch.load(
+            kwargs["init_ckpt"], map_location="cpu"
+        )
+        model.load_state_dict(checkpoint["model"])
+    return model
 
 @register_model
 def labram_base_patch200_1600_8k_vocab(pretrained=False, **kwargs): #5M
