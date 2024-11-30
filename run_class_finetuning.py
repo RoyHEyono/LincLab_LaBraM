@@ -36,6 +36,8 @@ from moabb.datasets import AlexMI,Zhou2016,PhysionetMI
 import torch.nn.functional as F
 from torch.utils.data import Dataset, ConcatDataset
 import random
+import itertools
+import copy
 
 def get_args():
     parser = argparse.ArgumentParser('LaBraM fine-tuning and evaluation script for EEG classification', add_help=False)
@@ -272,26 +274,33 @@ def main(args, ds_init):
     physionetmi_finetune = all_physionetmi[len(all_physionetmi) // 2:] # we use this
 
     # dataLoader=MotorImageryLoader(events=["right_hand", "left_hand"],dataset=BNCI2014_004())
-    alex_loader, (alex_train, alex_val, alex_test) = create_moabb_data(AlexMI(), alexmi_finetune, args.seed)
-    physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), physionetmi_finetune, args.seed,channel_used=alex_loader.get_ch_names())
-    datasets = [alex_train, alex_val, alex_test, physionet_train, physionet_val, physionet_test]
+    # alex_loader, (alex_train, alex_val, alex_test) = create_moabb_data(AlexMI(), alexmi_finetune, args.seed)
+    physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), all_physionetmi, args.seed)
+    datasets = [physionet_train, physionet_val, physionet_test]
+
+    # import pickle
+    # from utils import get_stats
+    # def save_as_pickle(data, filename):
+    #     with open(filename, 'wb') as f:
+    #         pickle.dump(data, f)
+    # stats = get_stats(physionet_loader)
+    # save_as_pickle(stats, '/home/mila/q/qingchen.hu/LincLab_LaBraM/subject_stats.pkl')
+
     padded_datasets = []
     for dataset in datasets:
         padded_dataset = [pad_sample(sample,truncate=True, padding=False, 
-                            target_channels=16, target_length=600) for sample in dataset]
+                            target_channels=64, target_length=600) for sample in dataset]
         padded_datasets.append(padded_dataset)
-    dataset_train = ConcatDataset([padded_datasets[0], padded_datasets[3]])
-    dataset_val = ConcatDataset([padded_datasets[1], padded_datasets[4]])
-    dataset_test = ConcatDataset([padded_datasets[2], padded_datasets[5]])
-    # dataset_train, dataset_val, dataset_test = map(
-    #     lambda x, y: torch.utils.data.ConcatDataset([x, y]),
-    #     [alex_train, alex_val, alex_test],
+    dataset_train = ConcatDataset([padded_datasets[0]])
+    dataset_val = ConcatDataset([padded_datasets[1]])
+    dataset_test = ConcatDataset([padded_datasets[2]])
+    # dataset_train, dataset_val, dataset_test = 
     #     [physionet_train, physionet_val, physionet_test]
-    # )
+    # 
     print(f"Data has size={dataset_train[0][0].shape}")
-    ch1=alex_loader.get_ch_names()
+    # ch1=alex_loader.get_ch_names()
     ch2=physionet_loader.get_ch_names()
-    ch_names=ch1
+    ch_names=ch2
 
     # dataLoader=MotorImageryLoader()
     # dataset_train, dataset_test, dataset_val = split_moabb_data(dataLoader, seed=args.seed)
@@ -433,7 +442,7 @@ def main(args, ds_init):
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    print("Model = %s" % str(model_without_ddp))
+    # print("Model = %s" % str(model_without_ddp))
     print('Model - number of params:', n_parameters)
 
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
@@ -533,10 +542,10 @@ def main(args, ds_init):
             ch_names=ch_names, is_binary=args.nb_classes == 1
         )
         
-        if args.output_dir and args.save_ckpt:
-            utils.save_model(
-                args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
+        # if args.output_dir and args.save_ckpt:
+            # utils.save_model(
+            #     args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+            #     loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
             
         if data_loader_val is not None:
             val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
@@ -546,10 +555,10 @@ def main(args, ds_init):
             
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
-                if args.output_dir and args.save_ckpt:
-                    utils.save_model(
-                        args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                        loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
+                # if args.output_dir and args.save_ckpt:
+                #     utils.save_model(
+                #         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                #         loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
                 max_accuracy_test = test_stats["accuracy"]
 
             print(f'Max accuracy val: {max_accuracy:.2f}%, max accuracy test: {max_accuracy_test:.2f}%')
@@ -604,6 +613,7 @@ def main(args, ds_init):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+    return max_accuracy, max_accuracy_test
 
 
 if __name__ == '__main__':
@@ -611,3 +621,50 @@ if __name__ == '__main__':
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
     main(opts, ds_init)
+
+    # hp = {
+    #     'lr': [1e-6, 5e-5, 1e-4, 5e-4],
+    #     'weight_decay': [0.01, 0.05, 0.1],
+    #     'layer_decay': [0.5, 0.65, 0.8],
+    #     'drop_path': [0.1, 0.2, 0.3],
+    #     'warmup_epochs': [3, 4, 5],
+    # }
+    # hp = {
+    #     'lr': [1e-6, 5e-5, 5e-4],
+    #     'weight_decay': [0.01, 0.05, 0.1],
+    #     'drop_path': [0.1, 0.3],
+    # }
+    # k, v = zip(*hp.items())
+    # combos = [dict(zip(k, c)) for c in itertools.product(*v)]
+    # out_dir = opts.output_dir or "./grid_search_results"
+    # Path(out_dir).mkdir(parents=True, exist_ok=True)
+    # results = []
+    # for i, cfg in enumerate(combos):
+    #     print(f"Running experiment {i + 1}/{len(combos)}")
+    #     o = copy.deepcopy(opts)
+    #     o.lr = cfg['lr']
+    #     o.weight_decay = cfg['weight_decay']
+    #     # o.layer_decay = cfg['layer_decay']
+    #     o.drop_path = cfg['drop_path']
+    #     # o.warmup_epochs = cfg['warmup_epochs']
+
+    #     o.output_dir = f"{out_dir}/exp_{i + 1}"
+    #     Path(o.output_dir).mkdir(parents=True, exist_ok=True)
+    #     if i==0:
+    #         utils.init_distributed_mode(o)
+    #     max_accuracy, max_accuracy_test = main(o, ds_init)
+    #     results.append({
+    #         "experiment_id": i + 1,
+    #         "config": cfg,
+    #         "val_accuracy": max_accuracy,
+    #         "test_accuracy": max_accuracy_test,
+    #     })
+
+    # best_run = max(results, key=lambda x: x["val_accuracy"])
+    # print("\nBest Run:")
+    # print(f"Experiment ID: {best_run['experiment_id']}")
+    # print(f"Validation Accuracy: {best_run['val_accuracy']:.2f}%")
+    # print(f"Test Accuracy: {best_run['test_accuracy']:.2f}%")
+    # print(f"Best Config: {json.dumps(best_run['config'], indent=4)}")
+    # with open(f"{out_dir}/results.json", "w") as f:
+    #     json.dump(results, f, indent=4)
