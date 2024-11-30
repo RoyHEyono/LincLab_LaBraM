@@ -50,8 +50,8 @@ moabb.set_log_level("info")
 mne.set_log_level("CRITICAL")
 warnings.filterwarnings("ignore")
 RESAMPLING_RATE = 200  # Hz
-FMIN = 8  # Hz
-FMAX = 32  # Hz
+FMIN = 0.1  # Hz
+FMAX = 75  # Hz
 
 standard_1020 = [
     'FP1', 'FPZ', 'FP2', 
@@ -787,12 +787,18 @@ class TUEVLoader(torch.utils.data.Dataset):
         X = torch.FloatTensor(X)
         return X, Y
 
+chOrder_standard_phyMI = ['FP1', 'FP2', 'F3', 'F4', 'C3', 'C4', 'P3', 'P4', 'O1', 'O2', 'F7', \
+                    'F8', 'FZ', 'CZ', 'PZ']
+
 class MotorImageryLoader(torch.utils.data.Dataset):
-    def __init__(self, n_classes=2, events=["right_hand", "feet"], sampling_rate=200, indices=None, subjects=[], dataset=AlexMI()):
+    def __init__(self, n_classes=2, events=["right_hand", "feet"], 
+    sampling_rate=200, indices=None, subjects=[], dataset=AlexMI(),
+    channel_used=None):
         self.default_rate = sampling_rate
-        self.paradigm = MotorImagery(n_classes=n_classes, events=events,fmin=FMIN,fmax=FMAX)
+        self.paradigm = MotorImagery(n_classes=n_classes, events=events)
         self.dataset=dataset
         self.subjects=subjects
+        self.picks=channel_used
         try:
             if len(subjects) >= 1:
                 self.X, self.y, self.metadata = self.paradigm.get_data(dataset,subjects=subjects)
@@ -803,21 +809,34 @@ class MotorImageryLoader(torch.utils.data.Dataset):
             print("shape inconsistency in data, proceed with padding!")
             X_all, y_all, metadata_all = [], [], []
             max_length = 0
+            min_length = float('inf')
             subject_list = self.subjects if len(self.subjects)>=1 else self.dataset.subject_list
             print(f"data subject list used:{subject_list}")
             for s in subject_list:
                 X, y, metadata = self.paradigm.get_data(dataset=dataset, subjects=[s])
                 max_length = max(max_length, X.shape[2])
-            print(f"padding data to maximum length: {max_length}")
+                min_length = min(min_length, X.shape[2])
+
             for s in subject_list:
                 X, y, metadata = self.paradigm.get_data(dataset=dataset, subjects=[s])
-                X_padded = []
+                X_ = []
+                skip=False
                 for trial in X:
-                    trial_padded = np.pad(trial, ((0, 0), (0, max_length-trial.shape[1])), "constant")
-                    X_padded.append(trial_padded)
-                X_all.append(np.array(X_padded))
-                y_all.append(y)
-                metadata_all.append(metadata)
+                    # padding data to maximum length: {max_length}
+                    # np.pad(trial, ((0, 0), (0, max_length-trial.shape[1])), "constant")
+
+                    # truncating data to min-length: {min_length}
+                    # X_.append(trial[:, :min_length])
+                    if trial.shape[1]==max_length:
+                        X_.append(trial)
+                    else:
+                        print(f"Data subject:{s} with shape: {trial.shape} not included")
+                        skip=True
+                        break
+                if not skip:
+                    X_all.append(np.array(X_))
+                    y_all.append(y)
+                    metadata_all.append(metadata)
 
             self.X, self.y, self.metadata = np.concatenate(X_all, axis=0),np.concatenate(y_all, axis=0), pd.concat(metadata_all, ignore_index=True)
 
@@ -828,6 +847,8 @@ class MotorImageryLoader(torch.utils.data.Dataset):
 
         #use mne resample instead of moabb's resampling
         self.X=self.preprocess_data(self.X)
+        #min-max scaling
+        # self.X = min_max_scale(self.X)
 
         EVENTS_MAPPING = {
             "left_hand": 0,
@@ -852,6 +873,7 @@ class MotorImageryLoader(torch.utils.data.Dataset):
         # moabb's method to get chnames
         ep, _, _ = self.paradigm.get_data(self.dataset, return_epochs=True,subjects=[1])
         chOrder=[x.upper() for x in ep.info['ch_names']]
+        # chOrder=['EEG '+x.upper()+'-REF' for x in ep.info['ch_names']]
         return chOrder
 
     def get_ch_types(self):
@@ -872,7 +894,9 @@ class MotorImageryLoader(torch.utils.data.Dataset):
         info = mne.create_info(
             ch_names=list(ch_names[np.where(ch_types == "eeg")]),
             ch_types=list(ch_types[np.where(ch_types == "eeg")]),
-            sfreq=512.0 if self.dataset.code=="AlexandreMotorImagery" else 160.0,
+            sfreq=512.0 if self.dataset.code=="AlexandreMotorImagery" else 160,
+            # 128,
+            # 160.0,
             verbose=False,
         )
 
@@ -881,15 +905,21 @@ class MotorImageryLoader(torch.utils.data.Dataset):
             info=info,
             verbose=False
         )
+        if self.picks is not None:
+            print(f"data channel is filtered by:{self.picks}")
+            epochs.pick(self.picks) 
+        # epochs.reorder_channels(chOrder_standard_phyMI)
+
+        epochs.filter(l_freq=0.1, h_freq=75)
         print(f"moabb data info before resample:{info}")
         # 3. resample data
         rs_frq = self.default_rate  # Hz
         if resample:
             epochs.resample(rs_frq)
 
-        return epochs.get_data()
+        return epochs.get_data(units='V')
 
-def split_moabb_data(dataset, split_ratios=(0.7, 0.1, 0.2), seed=42):
+def split_moabb_data(dataset, split_ratios=(0.6, 0.3, 0.1), seed=42):
     torch.manual_seed(seed)
     np.random.seed(seed)
     #unique subject-session combinations from the metadata
@@ -914,18 +944,31 @@ def split_moabb_data(dataset, split_ratios=(0.7, 0.1, 0.2), seed=42):
     test_ds = ConcatDataset(test_dss)
     return train_ds, val_ds, test_ds
 
-def create_moabb_data(dataset, subject, seed):
+def min_max_scale(data, new_min=-1, new_max=1):
+    lower_bound = np.percentile(data, 1, axis=1, keepdims=True)
+    upper_bound = np.percentile(data, 99, axis=1, keepdims=True)
+    data = np.clip(data, lower_bound, upper_bound)
+
+    data_min = np.min(data)
+    data_max = np.max(data)
+    
+    scaled_data = (data - data_min) / (data_max - data_min)  # Scale to 0 to 1
+    scaled_data = scaled_data * (new_max - new_min) + new_min  # Scale to -1 to 1
+    
+    return scaled_data
+
+def create_moabb_data(dataset, subject, seed, channel_used=None):
     loader = MotorImageryLoader(
         n_classes=2, events=["right_hand", "feet"], sampling_rate=200,
-        subjects=subject, dataset=dataset
+        subjects=subject, dataset=dataset,channel_used=channel_used
     )
     return loader, split_moabb_data(loader, seed=seed)
 
-def pad_sample(sample, truncate=True, padding=True, target_channels=64, target_length=600):
+def pad_sample(sample, truncate=True, padding=True, target_channels=16, target_length=600):
         x, y = sample
         # Truncate if necessary
         if truncate:
-            x = x[:target_channels, :target_length]
+            x = x[:, :target_length]
         # Pad if necessary
         if padding:
             x = F.pad(
@@ -951,6 +994,30 @@ def pad_collate(batch):
     X = torch.stack(padded_X)
     y = torch.stack(y)
     return X, y
+
+def get_stats(loader):
+    """
+    Retrieve data for each subject from the data loader, concatenate trials across time,
+    and compute min, max, and mean values for each channel.
+    """
+    stats = {}
+    for sid in loader.subjects:
+        sl = MotorImageryLoader(
+            n_classes=loader.paradigm.n_classes,
+            events=loader.paradigm.events,
+            sampling_rate=loader.default_rate,
+            subjects=[sid],
+            dataset=loader.dataset,
+            channel_used=loader.picks
+        )
+        data = [sl[i][0].numpy() for i in range(len(sl))]
+        concat = np.concatenate(data, axis=1)
+        stats[sid] = {
+            "min": concat.min(axis=1),
+            "max": concat.max(axis=1),
+            "mean": concat.mean(axis=1)
+        }
+    return stats
 
 def prepare_TUEV_dataset(root):
     # set random seed
