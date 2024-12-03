@@ -38,6 +38,15 @@ from torch.utils.data import Dataset, ConcatDataset
 import random
 import itertools
 import copy
+import wandb
+
+def initialize_wandb(args, setup_hp,name=None):
+    wandb.init(
+        project="LaBram_FineTuning",
+        config={**vars(args), **setup_hp},
+        name=f"PhysionetMI_divide-data_{name}",
+        reinit=True,
+    )
 
 def get_args():
     parser = argparse.ArgumentParser('LaBraM fine-tuning and evaluation script for EEG classification', add_help=False)
@@ -236,7 +245,7 @@ def get_dataset(args):
 
 
 def main(args, ds_init):
-    utils.init_distributed_mode(args)
+    # utils.init_distributed_mode(args)
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -262,29 +271,6 @@ def main(args, ds_init):
     # time_window = [16]
     # dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride_size=800, start_percentage=0, end_percentage=1)
     # dataset_train, dataset_test, dataset_val=dataset_train_list[0],dataset_train_list[0],dataset_train_list[0]
- 
-    random.seed(42)
-    all_alexmi = list(range(1,9)) 
-    all_physionetmi = list(range(1,110))
-    random.shuffle(all_alexmi)
-    random.shuffle(all_physionetmi)
-    alexmi_pretrain = all_alexmi[:len(all_alexmi) // 2] # dont use this, its the ones use for pretraining
-    alexmi_finetune = all_alexmi[len(all_alexmi) // 2:] # we use this
-    physionetmi_pretrain = all_physionetmi[:len(all_physionetmi) // 2] # dont use this, its the ones use for pretraining
-    physionetmi_finetune = all_physionetmi[len(all_physionetmi) // 2:] # we use this
-
-    # dataLoader=MotorImageryLoader(events=["right_hand", "left_hand"],dataset=BNCI2014_004())
-    # alex_loader, (alex_train, alex_val, alex_test) = create_moabb_data(AlexMI(), alexmi_finetune, args.seed)
-    physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), all_physionetmi, args.seed)
-    datasets = [physionet_train, physionet_val, physionet_test]
-
-    # import pickle
-    # from utils import get_stats
-    # def save_as_pickle(data, filename):
-    #     with open(filename, 'wb') as f:
-    #         pickle.dump(data, f)
-    # stats = get_stats(physionet_loader)
-    # save_as_pickle(stats, '/home/mila/q/qingchen.hu/LincLab_LaBraM/subject_stats.pkl')
 
     padded_datasets = []
     for dataset in datasets:
@@ -294,9 +280,7 @@ def main(args, ds_init):
     dataset_train = ConcatDataset([padded_datasets[0]])
     dataset_val = ConcatDataset([padded_datasets[1]])
     dataset_test = ConcatDataset([padded_datasets[2]])
-    # dataset_train, dataset_val, dataset_test = 
-    #     [physionet_train, physionet_val, physionet_test]
-    # 
+
     print(f"Data has size={dataset_train[0][0].shape}")
     # ch1=alex_loader.get_ch_names()
     ch2=physionet_loader.get_ch_names()
@@ -566,33 +550,47 @@ def main(args, ds_init):
                 for key, value in val_stats.items():
                     if key == 'accuracy':
                         log_writer.update(accuracy=value, head="val", step=epoch)
+                        wandb.log({"val_accuracy": value, "epoch": epoch})
                     elif key == 'balanced_accuracy':
                         log_writer.update(balanced_accuracy=value, head="val", step=epoch)
+                        wandb.log({"val_balanced_accuracy": value, "epoch": epoch})
                     elif key == 'f1_weighted':
                         log_writer.update(f1_weighted=value, head="val", step=epoch)
+                        wandb.log({"val_f1_weighted": value, "epoch": epoch})
                     elif key == 'pr_auc':
                         log_writer.update(pr_auc=value, head="val", step=epoch)
+                        wandb.log({"val_pr_auc": value, "epoch": epoch})
                     elif key == 'roc_auc':
                         log_writer.update(roc_auc=value, head="val", step=epoch)
+                        wandb.log({"val_roc_auc": value, "epoch": epoch})
                     elif key == 'cohen_kappa':
                         log_writer.update(cohen_kappa=value, head="val", step=epoch)
+                        wandb.log({"val_cohen_kappa": value, "epoch": epoch})
                     elif key == 'loss':
                         log_writer.update(loss=value, head="val", step=epoch)
+                        wandb.log({"val_loss": value, "epoch": epoch})
                 for key, value in test_stats.items():
                     if key == 'accuracy':
                         log_writer.update(accuracy=value, head="test", step=epoch)
+                        wandb.log({"test_accuracy": value, "epoch": epoch})
                     elif key == 'balanced_accuracy':
                         log_writer.update(balanced_accuracy=value, head="test", step=epoch)
+                        wandb.log({"test_balanced_accuracy": value, "epoch": epoch})
                     elif key == 'f1_weighted':
                         log_writer.update(f1_weighted=value, head="test", step=epoch)
+                        wandb.log({"test_f1_weighted": value, "epoch": epoch})
                     elif key == 'pr_auc':
                         log_writer.update(pr_auc=value, head="test", step=epoch)
+                        wandb.log({"test_pr_auc": value, "epoch": epoch})
                     elif key == 'roc_auc':
                         log_writer.update(roc_auc=value, head="test", step=epoch)
+                        wandb.log({"test_roc_auc": value, "epoch": epoch})
                     elif key == 'cohen_kappa':
                         log_writer.update(cohen_kappa=value, head="test", step=epoch)
+                        wandb.log({"test_cohen_kappa": value, "epoch": epoch})
                     elif key == 'loss':
                         log_writer.update(loss=value, head="test", step=epoch)
+                        wandb.log({"test_loss": value, "epoch": epoch})
                 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
@@ -603,12 +601,13 @@ def main(args, ds_init):
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,
                          'n_parameters': n_parameters}
-
+        wandb.log(log_stats)
         if args.output_dir and utils.is_main_process():
             if log_writer is not None:
                 log_writer.flush()
-            with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
-                f.write(json.dumps(log_stats) + "\n")
+            #NOTE: dont save the log file for now
+            # with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
+            #     f.write(json.dumps(log_stats) + "\n")
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -618,53 +617,62 @@ def main(args, ds_init):
 
 if __name__ == '__main__':
     opts, ds_init = get_args()
-    if opts.output_dir:
-        Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
-    main(opts, ds_init)
+    # if opts.output_dir:
+    #     Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
+    # main(opts, ds_init)
 
-    # hp = {
-    #     'lr': [1e-6, 5e-5, 1e-4, 5e-4],
-    #     'weight_decay': [0.01, 0.05, 0.1],
-    #     'layer_decay': [0.5, 0.65, 0.8],
-    #     'drop_path': [0.1, 0.2, 0.3],
-    #     'warmup_epochs': [3, 4, 5],
-    # }
-    # hp = {
-    #     'lr': [1e-6, 5e-5, 5e-4],
-    #     'weight_decay': [0.01, 0.05, 0.1],
-    #     'drop_path': [0.1, 0.3],
-    # }
-    # k, v = zip(*hp.items())
-    # combos = [dict(zip(k, c)) for c in itertools.product(*v)]
-    # out_dir = opts.output_dir or "./grid_search_results"
-    # Path(out_dir).mkdir(parents=True, exist_ok=True)
-    # results = []
-    # for i, cfg in enumerate(combos):
-    #     print(f"Running experiment {i + 1}/{len(combos)}")
-    #     o = copy.deepcopy(opts)
-    #     o.lr = cfg['lr']
-    #     o.weight_decay = cfg['weight_decay']
-    #     # o.layer_decay = cfg['layer_decay']
-    #     o.drop_path = cfg['drop_path']
-    #     # o.warmup_epochs = cfg['warmup_epochs']
+    random.seed(42)
+    all_alexmi = list(range(1,9)) 
+    all_physionetmi = list(range(1,110))
+    random.shuffle(all_alexmi)
+    random.shuffle(all_physionetmi)
+    alexmi_pretrain = all_alexmi[:len(all_alexmi) // 2] # dont use this, its the ones use for pretraining
+    alexmi_finetune = all_alexmi[len(all_alexmi) // 2:] # we use this
+    physionetmi_pretrain = all_physionetmi[:len(all_physionetmi) // 2] # dont use this, its the ones use for pretraining
+    physionetmi_finetune = all_physionetmi[len(all_physionetmi) // 2:] # we use this
 
-    #     o.output_dir = f"{out_dir}/exp_{i + 1}"
-    #     Path(o.output_dir).mkdir(parents=True, exist_ok=True)
-    #     if i==0:
-    #         utils.init_distributed_mode(o)
-    #     max_accuracy, max_accuracy_test = main(o, ds_init)
-    #     results.append({
-    #         "experiment_id": i + 1,
-    #         "config": cfg,
-    #         "val_accuracy": max_accuracy,
-    #         "test_accuracy": max_accuracy_test,
-    #     })
+    # dataLoader=MotorImageryLoader(events=["right_hand", "left_hand"],dataset=BNCI2014_004())
+    # alex_loader, (alex_train, alex_val, alex_test) = create_moabb_data(AlexMI(), alexmi_finetune, opts.seed)
+    physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), all_physionetmi, opts.seed)
+    datasets = [physionet_train, physionet_val, physionet_test]
 
-    # best_run = max(results, key=lambda x: x["val_accuracy"])
-    # print("\nBest Run:")
-    # print(f"Experiment ID: {best_run['experiment_id']}")
-    # print(f"Validation Accuracy: {best_run['val_accuracy']:.2f}%")
-    # print(f"Test Accuracy: {best_run['test_accuracy']:.2f}%")
-    # print(f"Best Config: {json.dumps(best_run['config'], indent=4)}")
-    # with open(f"{out_dir}/results.json", "w") as f:
-    #     json.dump(results, f, indent=4)
+    hp = {
+        'lr': [1e-4, 1e-3],
+        'weight_decay': [0.05, 0.1],
+        'drop': [0],
+        'layer_decay': [0.65],
+        'batch_size': [16,64],
+        'drop_path':[0.01, 0.1]
+    }
+    k, v = zip(*hp.items())
+    combos = [dict(zip(k, c)) for c in itertools.product(*v)]
+    out_dir = opts.output_dir or "./grid_search_results"
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    results = []
+    utils.init_distributed_mode(opts)
+
+    for i, cfg in enumerate(combos):
+        print(f"Running experiment {i + 1}/{len(combos)}")
+        initialize_wandb(opts, cfg,name=f"{i+1}")
+
+        o = copy.deepcopy(opts)
+        o.lr = cfg['lr']
+        o.weight_decay = cfg['weight_decay']
+        o.layer_decay = cfg['layer_decay']
+        o.drop = cfg['drop']
+        o.batch_size = cfg['batch_size']
+        o.drop_path = cfg['drop_path']
+
+        o.output_dir = f"{out_dir}/exp_{i + 1}"
+        max_accuracy, max_accuracy_test = main(o, ds_init)
+        results.append({
+            "config": cfg,
+            "val_accuracy": max_accuracy,
+            "test_accuracy": max_accuracy_test,
+        })
+
+    best_run = max(results, key=lambda x: x["val_accuracy"])
+    print("\nBest Run:")
+    print(f"Validation Accuracy: {best_run['val_accuracy']:.2f}%")
+    print(f"Test Accuracy: {best_run['test_accuracy']:.2f}%")
+    print(f"Best Config: {json.dumps(best_run['config'], indent=4)}")

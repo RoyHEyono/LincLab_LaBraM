@@ -850,6 +850,9 @@ class MotorImageryLoader(torch.utils.data.Dataset):
         #min-max scaling
         # self.X = min_max_scale(self.X)
 
+        #divide by a constant
+        # self.X = divide(self.X)
+
         EVENTS_MAPPING = {
             "left_hand": 0,
             "right_hand": 1,
@@ -917,7 +920,7 @@ class MotorImageryLoader(torch.utils.data.Dataset):
         if resample:
             epochs.resample(rs_frq)
 
-        return epochs.get_data(units='V')
+        return epochs.get_data()
 
 def split_moabb_data(dataset, split_ratios=(0.6, 0.3, 0.1), seed=42):
     torch.manual_seed(seed)
@@ -943,6 +946,10 @@ def split_moabb_data(dataset, split_ratios=(0.6, 0.3, 0.1), seed=42):
     val_ds = ConcatDataset(val_dss)
     test_ds = ConcatDataset(test_dss)
     return train_ds, val_ds, test_ds
+
+def divide(data):
+    scaled_data = data // 30000
+    return scaled_data
 
 def min_max_scale(data, new_min=-1, new_max=1):
     lower_bound = np.percentile(data, 1, axis=1, keepdims=True)
