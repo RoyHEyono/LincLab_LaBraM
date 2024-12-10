@@ -42,9 +42,9 @@ import wandb
 
 def initialize_wandb(args, setup_hp,name=None):
     wandb.init(
-        project="LaBram_FineTuning",
+        project="LaBram_FineTuning_NoMinMax",
         config={**vars(args), **setup_hp},
-        name=f"PhysionetMI_divide-data_{name}",
+        name=f"PhysionetMI_{name}",
         reinit=True,
     )
 
@@ -633,16 +633,17 @@ if __name__ == '__main__':
 
     # dataLoader=MotorImageryLoader(events=["right_hand", "left_hand"],dataset=BNCI2014_004())
     # alex_loader, (alex_train, alex_val, alex_test) = create_moabb_data(AlexMI(), alexmi_finetune, opts.seed)
-    physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), all_physionetmi, opts.seed)
+    all_physionetmi_filtered=[x for x in all_physionetmi if x not in [92,88,100]]
+    physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), all_physionetmi_filtered, opts.seed)
     datasets = [physionet_train, physionet_val, physionet_test]
 
     hp = {
-        'lr': [1e-4, 1e-3],
-        'weight_decay': [0.05, 0.1],
-        'drop': [0],
-        'layer_decay': [0.65],
-        'batch_size': [16,64],
-        'drop_path':[0.01, 0.1]
+        'lr': [1e-4, 1e-3, 1e-2],
+        'weight_decay': [0.5, 0.05, 0.0001],
+        'drop': [0, 0.001, 0.0001],
+        'layer_decay': [0.65, 0.05, 0.0001],
+        'batch_size': [16,32,64],
+        'drop_path':[0.01, 0.1, 0.0001]
     }
     k, v = zip(*hp.items())
     combos = [dict(zip(k, c)) for c in itertools.product(*v)]

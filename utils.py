@@ -795,7 +795,7 @@ class MotorImageryLoader(torch.utils.data.Dataset):
     sampling_rate=200, indices=None, subjects=[], dataset=AlexMI(),
     channel_used=None):
         self.default_rate = sampling_rate
-        self.paradigm = MotorImagery(n_classes=n_classes, events=events)
+        self.paradigm = MotorImagery(n_classes=n_classes, events=events,fmin=0.1, fmax=75)
         self.dataset=dataset
         self.subjects=subjects
         self.picks=channel_used
@@ -847,7 +847,7 @@ class MotorImageryLoader(torch.utils.data.Dataset):
 
         #use mne resample instead of moabb's resampling
         self.X=self.preprocess_data(self.X)
-        #min-max scaling
+        #min-max scaling across subjects
         # self.X = min_max_scale(self.X)
 
         #divide by a constant
@@ -913,14 +913,22 @@ class MotorImageryLoader(torch.utils.data.Dataset):
             epochs.pick(self.picks) 
         # epochs.reorder_channels(chOrder_standard_phyMI)
 
-        epochs.filter(l_freq=0.1, h_freq=75)
         print(f"moabb data info before resample:{info}")
         # 3. resample data
         rs_frq = self.default_rate  # Hz
         if resample:
             epochs.resample(rs_frq)
 
-        return epochs.get_data()
+        data = epochs.get_data()
+
+        # 1. Remove outliers for single data point per session and per channel
+        lower_bound = np.percentile(data, q=1, axis=(0, 2), keepdims=True)
+        upper_bound = np.percentile(data, q=99, axis=(0, 2), keepdims=True)
+  
+        data = np.clip(data, lower_bound, upper_bound)
+        # data = min_max_scale(data, new_min=-0.1, new_max=0.1)
+
+        return data
 
 def split_moabb_data(dataset, split_ratios=(0.6, 0.3, 0.1), seed=42):
     torch.manual_seed(seed)
@@ -951,16 +959,12 @@ def divide(data):
     scaled_data = data // 30000
     return scaled_data
 
-def min_max_scale(data, new_min=-1, new_max=1):
-    lower_bound = np.percentile(data, 1, axis=1, keepdims=True)
-    upper_bound = np.percentile(data, 99, axis=1, keepdims=True)
-    data = np.clip(data, lower_bound, upper_bound)
-
+def min_max_scale(data, new_min=-0.1, new_max=0.1):
     data_min = np.min(data)
     data_max = np.max(data)
     
-    scaled_data = (data - data_min) / (data_max - data_min)  # Scale to 0 to 1
-    scaled_data = scaled_data * (new_max - new_min) + new_min  # Scale to -1 to 1
+    scaled_data = (data - data_min) / (data_max - data_min)  # Scale to 0 to 0.1
+    scaled_data = scaled_data * (new_max - new_min) + new_min  # Scale to -.1 to .1
     
     return scaled_data
 

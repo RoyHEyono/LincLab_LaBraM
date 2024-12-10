@@ -235,6 +235,7 @@ def main(args):
 
     model.to(device)
     model_without_ddp = model
+    print(f"Model's loss function:{model.loss_fn}")
     if not args.eval:
         print("Model = %s" % str(model_without_ddp))
     for part in ['encoder', 'decoder']:
@@ -257,7 +258,7 @@ def main(args):
     print("Batch size = %d" % total_batch_size)
     print("Number of training steps = %d" % num_training_steps_per_epoch)
     print("Number of training examples per epoch = %d" % (total_batch_size * num_training_steps_per_epoch))
-
+    
     optimizer = create_optimizer(args, model_without_ddp)
     loss_scaler = NativeScaler()
 

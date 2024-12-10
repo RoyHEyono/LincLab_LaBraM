@@ -18,8 +18,8 @@ conda activate labram
 # pip install -r requirements.txt
 export CUDA_LAUNCH_BLOCKING=1
 # OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=2 run_vqnsp_training.py \
-#     --output_dir ./checkpoints/vqnsp_alex_physion_200/ \
-#     --log_dir ./log/vqnsp_alex_physion_200/ \
+#     --output_dir ./checkpoints/vqnsp_alex_physion_300/ \
+#     --log_dir ./log/vqnsp_alex_physion_300/ \
 #     --model vqnsp_encoder_base_decoder_3x200x12 \
 #     --codebook_n_emd 8192 \
 #     --codebook_emd_dim 64 \
@@ -29,13 +29,13 @@ export CUDA_LAUNCH_BLOCKING=1
 #     --opt_betas 0.9 0.99 \
 #     --weight_decay 1e-4  \
 #     --warmup_epochs 10 \
-#     --epochs 200 \
+#     --epochs 100 \
 #     --save_ckpt_freq 100 
 
 OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=2 run_labram_pretraining.py \
-        --output_dir ./checkpoints/labram_base_alex_physion_150/ \
-        --log_dir ./log/labram_base_alex_physion_150/ \
-        --model labram_base_patch200_1600_8k_vocab \
+        --output_dir ./checkpoints/labram_small_alex_physion_150/ \
+        --log_dir ./log/labram_small_alex_physion_150/ \
+        --model labram_small_patch200_1600_8k_vocab \
         --input_size 1600 \
         --tokenizer_model vqnsp_encoder_base_decoder_3x200x12 \
         --tokenizer_weight ./checkpoints/vqnsp_alex_physion_200/checkpoint-199.pth \
