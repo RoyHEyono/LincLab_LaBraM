@@ -15,6 +15,8 @@ def process_alexmi_filename(x):
   for num in x:
     out=out+["subject"+str(num)+".raw.fif"]
   return out
+
+# divide by subjects, half subjects used for pretraining and half for fine-tuning
 alexmi_pretrain = all_alexmi[:len(all_alexmi) // 2]
 alexmi_pretrain = process_alexmi_filename(alexmi_pretrain)
 alexmi_finetune = all_alexmi[len(all_alexmi) // 2:]

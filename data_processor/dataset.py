@@ -9,7 +9,8 @@ list_path = List[Path]
 
 class SingleShockDataset(Dataset):
     """Read single hdf5 file regardless of label, subject, and paradigm."""
-    def __init__(self, file_path: Path, window_size: int=200, stride_size: int=1, start_percentage: float=0, end_percentage: float=1):
+    def __init__(self, file_path: Path, window_size: int=200, stride_size: int=1, 
+                 start_percentage: float=0, end_percentage: float=1, subject_filter=None):
         '''
         Extract datasets from file_path.
 
@@ -24,6 +25,7 @@ class SingleShockDataset(Dataset):
         self.__stride_size = stride_size
         self.__start_percentage = start_percentage
         self.__end_percentage = end_percentage
+        self.__subject_filter = subject_filter
 
         self.__file = None
         self.__length = None
@@ -38,6 +40,10 @@ class SingleShockDataset(Dataset):
     def __init_dataset(self) -> None:
         self.__file = h5py.File(str(self.__file_path), 'r')
         self.__subjects = [i for i in self.__file]
+        #filter based on subjects if provided
+        # self.__subjects = [i for i in self.__file if not self.__subject_filter or i in self.__subject_filter]
+
+        # print(f"-------------------The used subjects at {self.__file_path} are:-----------------\n{self.__subjects}")
 
         global_idx = 0
         for subject in self.__subjects:
@@ -79,7 +85,8 @@ class SingleShockDataset(Dataset):
 
 class ShockDataset(Dataset):
     """integrate multiple hdf5 files"""
-    def __init__(self, file_paths: list_path, window_size: int=200, stride_size: int=1, start_percentage: float=0, end_percentage: float=1):
+    def __init__(self, file_paths: list_path, window_size: int=200, stride_size: int=1, 
+                 start_percentage: float=0, end_percentage: float=1, subject_filter=None):
         '''
         Arguments will be passed to SingleShockDataset. Refer to SingleShockDataset.
         '''
@@ -88,6 +95,7 @@ class ShockDataset(Dataset):
         self.__stride_size = stride_size
         self.__start_percentage = start_percentage
         self.__end_percentage = end_percentage
+        self.__subject_filter = subject_filter 
 
         self.__datasets = []
         self.__length = None
@@ -98,7 +106,10 @@ class ShockDataset(Dataset):
         self.__init_dataset()
 
     def __init_dataset(self) -> None:
-        self.__datasets = [SingleShockDataset(file_path, self.__window_size, self.__stride_size, self.__start_percentage, self.__end_percentage) for file_path in self.__file_paths]
+        self.__datasets = [SingleShockDataset(file_path, self.__window_size, 
+                                              self.__stride_size, self.__start_percentage, 
+                                              self.__end_percentage, subject_filter=self.__subject_filter) 
+        for file_path in self.__file_paths]
         
         # calculate the number of samples for each subdataset to form the integral indexes
         dataset_idx = 0

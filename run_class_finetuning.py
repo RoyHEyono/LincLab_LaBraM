@@ -40,10 +40,10 @@ import itertools
 import copy
 import wandb
 
-def initialize_wandb(args, setup_hp,name=None):
+def initialize_wandb(args, name=None):
     wandb.init(
-        project="LaBram_FineTuning_NoMinMax",
-        config={**vars(args), **setup_hp},
+        project="LaBram_FineTuning_arrayjob",
+        config=args,
         name=f"PhysionetMI_{name}",
         reinit=True,
     )
@@ -245,7 +245,7 @@ def get_dataset(args):
 
 
 def main(args, ds_init):
-    # utils.init_distributed_mode(args)
+    utils.init_distributed_mode(args)
 
     if ds_init is not None:
         utils.create_ds_config(args)
@@ -334,7 +334,6 @@ def main(args, ds_init):
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
         drop_last=True
-        # , collate_fn=pad_collate
     )
 
     if dataset_val is not None:
@@ -617,10 +616,8 @@ def main(args, ds_init):
 
 if __name__ == '__main__':
     opts, ds_init = get_args()
-    # if opts.output_dir:
-    #     Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
-    # main(opts, ds_init)
-
+    if opts.output_dir:
+        Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
     random.seed(42)
     all_alexmi = list(range(1,9)) 
     all_physionetmi = list(range(1,110))
@@ -636,44 +633,5 @@ if __name__ == '__main__':
     all_physionetmi_filtered=[x for x in all_physionetmi if x not in [92,88,100]]
     physionet_loader, (physionet_train, physionet_val, physionet_test) = create_moabb_data(PhysionetMI(), all_physionetmi_filtered, opts.seed)
     datasets = [physionet_train, physionet_val, physionet_test]
-
-    hp = {
-        'lr': [1e-4, 1e-3, 1e-2],
-        'weight_decay': [0.5, 0.05, 0.0001],
-        'drop': [0, 0.001, 0.0001],
-        'layer_decay': [0.65, 0.05, 0.0001],
-        'batch_size': [16,32,64],
-        'drop_path':[0.01, 0.1, 0.0001]
-    }
-    k, v = zip(*hp.items())
-    combos = [dict(zip(k, c)) for c in itertools.product(*v)]
-    out_dir = opts.output_dir or "./grid_search_results"
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    results = []
-    utils.init_distributed_mode(opts)
-
-    for i, cfg in enumerate(combos):
-        print(f"Running experiment {i + 1}/{len(combos)}")
-        initialize_wandb(opts, cfg,name=f"{i+1}")
-
-        o = copy.deepcopy(opts)
-        o.lr = cfg['lr']
-        o.weight_decay = cfg['weight_decay']
-        o.layer_decay = cfg['layer_decay']
-        o.drop = cfg['drop']
-        o.batch_size = cfg['batch_size']
-        o.drop_path = cfg['drop_path']
-
-        o.output_dir = f"{out_dir}/exp_{i + 1}"
-        max_accuracy, max_accuracy_test = main(o, ds_init)
-        results.append({
-            "config": cfg,
-            "val_accuracy": max_accuracy,
-            "test_accuracy": max_accuracy_test,
-        })
-
-    best_run = max(results, key=lambda x: x["val_accuracy"])
-    print("\nBest Run:")
-    print(f"Validation Accuracy: {best_run['val_accuracy']:.2f}%")
-    print(f"Test Accuracy: {best_run['test_accuracy']:.2f}%")
-    print(f"Best Config: {json.dumps(best_run['config'], indent=4)}")
+    initialize_wandb(opts, name="hparam-search")
+    main(opts, ds_init)
